@@ -10,7 +10,7 @@ INDEX_FILE = os.path.join(BASE_DIR, "00_WIKI_INDEX.md")
 MODEL_NAME = "gemma4-wiki"
 
 def call_ollama(prompt):
-    """Call Gemma 4 and extract content (excluding Thinking process)"""
+    """Call Gemma 4 and extract content (Thinking disabled via system prompt)"""
     process = subprocess.Popen(
         ["ollama", "run", MODEL_NAME],
         stdin=subprocess.PIPE,
@@ -21,17 +21,13 @@ def call_ollama(prompt):
     )
     stdout, stderr = process.communicate(input=prompt)
     
-    # Extract markdown content starting with #
-    match = re.search(r'(#\s.*)', stdout, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    
-    # Fallback: remove thinking markers
-    clean = re.sub(r'(?s)^.*?Thinking.*?\.\s*', '', stdout)
+    # Simple cleanup of accidental thinking tags
+    clean = re.sub(r'(?s)<\|think\|>.*?<\|done\|>', '', stdout)
+    clean = re.sub(r'(?s)Thinking.*?\.\.\.', '', clean)
     return clean.strip()
 
 def save_article(topic, content):
-    """Save the article as a markdown file for Obsidian"""
+    """Save as Markdown for Obsidian with explicit UTF-8 encoding"""
     safe_topic = re.sub(r'[\\/:*?"<>|]', '_', topic).replace(' ', '_')
     file_path = os.path.join(BASE_DIR, f"{safe_topic}.md")
     
@@ -46,7 +42,7 @@ def save_article(topic, content):
     return content
 
 def run_loop(start_topic):
-    """Main generation loop with automatic next topic extraction"""
+    """Main generation loop with Thinking feature disabled in prompt"""
     current_topic = start_topic
     
     if not os.path.exists(RULES_FILE):
@@ -56,16 +52,17 @@ def run_loop(start_topic):
     with open(RULES_FILE, "r", encoding="utf-8") as f:
         rules = f.read()
 
-    print("--- Starting Wiki Generation Loop ---")
+    print("--- Starting Wiki Generation Loop (Thinking Disabled) ---")
     while True:
-        prompt = f"{rules}\n\n以下のトピックについて執筆してください。\n{current_topic}\n\n制約：即座に # 記事タイトル から開始してください。"
+        # Prompt explicitly forbids thinking logs
+        prompt = f"{rules}\n\n注意：思考ログ（Thinking...）は一切出力せず、即座に # 記事タイトル から回答を開始してください。\nトピック：{current_topic}"
         print(f"Processing: {current_topic} ...")
         
         content = call_ollama(prompt)
         if content:
             save_article(current_topic, content)
             
-            # Extract next topic from the content
+            # Extract next topic
             match = re.search(r'NEXT_WIKI_ARTICLE:\s*\[?([^\]\r\n]+)\]?', content)
             if match:
                 current_topic = match.group(1).strip()
@@ -82,4 +79,4 @@ def run_loop(start_topic):
         time.sleep(10)
 
 if __name__ == "__main__":
-    run_loop("設備台帳のRDB化とSQL基本操作")
+    run_loop("データベース正規化の実務的なメリットと注意点")
